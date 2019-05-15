@@ -64,8 +64,8 @@ func brotliHandler(fn http.HandlerFunc, w http.ResponseWriter, r *http.Request) 
 	w.Header().Set("Content-Encoding", "br")
 
 	op := &enc.BrotliWriterOptions{
-		Quality: 9,
-		LGWin:   15,
+		Quality: 4,
+		LGWin:   10,
 	}
 	br := enc.NewBrotliWriter(w, op)
 	defer func() {
