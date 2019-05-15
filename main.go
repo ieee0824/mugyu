@@ -10,6 +10,8 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strings"
+
+	"github.com/itchio/go-brotli/enc"
 )
 
 type compressResponseWriter struct {
@@ -58,9 +60,26 @@ func deflateHandler(fn http.HandlerFunc, w http.ResponseWriter, r *http.Request)
 	fn(dfr, r)
 }
 
-func makeGzipHandler(fn http.HandlerFunc) http.HandlerFunc {
+func brotliHandler(fn http.HandlerFunc, w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Encoding", "br")
+
+	br := enc.NewBrotliWriter(w, nil)
+	defer func() {
+		err := br.Close()
+		if err != nil {
+			fmt.Printf("Error closing brotli: %+v\n", err)
+		}
+	}()
+	brr := compressResponseWriter{Writer: br, ResponseWriter: w}
+	fn(brr, r)
+}
+
+func makeCompressionHandler(fn http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.Header.Get("Accept-Encoding"), "deflate") {
+		if strings.Contains(r.Header.Get("Accept-Encoding"), "br") {
+			brotliHandler(fn, w, r)
+			return
+		} else if strings.Contains(r.Header.Get("Accept-Encoding"), "deflate") {
 			deflateHandler(fn, w, r)
 			return
 		} else if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
@@ -83,7 +102,7 @@ func reverseProxy(backEndUrl string) func(http.ResponseWriter, *http.Request) {
 func main() {
 	proxyServer := http.Server{
 		Addr:    ":8080",
-		Handler: makeGzipHandler(reverseProxy("http://localhost:9000")),
+		Handler: makeCompressionHandler(reverseProxy("http://localhost:9000")),
 	}
 	if err := proxyServer.ListenAndServe(); err != nil {
 		log.Fatalln(err)
