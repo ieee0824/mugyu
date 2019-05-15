@@ -30,7 +30,7 @@ func (w compressResponseWriter) WriteHeader(code int) {
 
 func gzipHandler(fn http.HandlerFunc, w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Encoding", "gzip")
-	gz, err := gzip.NewWriterLevel(w, gzip.BestCompression)
+	gz, err := gzip.NewWriterLevel(w, gzip.BestSpeed)
 	if err != nil {
 		fmt.Printf("Error closing gzip: %+v\n", err)
 	}
@@ -46,7 +46,7 @@ func gzipHandler(fn http.HandlerFunc, w http.ResponseWriter, r *http.Request) {
 
 func deflateHandler(fn http.HandlerFunc, w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Encoding", "deflate")
-	df, err := flate.NewWriter(w, flate.BestCompression)
+	df, err := flate.NewWriter(w, flate.BestSpeed)
 	if err != nil {
 		fmt.Printf("Error closing deflate: %+v\n", err)
 	}
@@ -63,7 +63,11 @@ func deflateHandler(fn http.HandlerFunc, w http.ResponseWriter, r *http.Request)
 func brotliHandler(fn http.HandlerFunc, w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Encoding", "br")
 
-	br := enc.NewBrotliWriter(w, nil)
+	op := &enc.BrotliWriterOptions{
+		Quality: 9,
+		LGWin:   15,
+	}
+	br := enc.NewBrotliWriter(w, op)
 	defer func() {
 		err := br.Close()
 		if err != nil {
@@ -76,6 +80,7 @@ func brotliHandler(fn http.HandlerFunc, w http.ResponseWriter, r *http.Request) 
 
 func makeCompressionHandler(fn http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Vary", "Assept-Encoding")
 		if strings.Contains(r.Header.Get("Accept-Encoding"), "br") {
 			brotliHandler(fn, w, r)
 			return
