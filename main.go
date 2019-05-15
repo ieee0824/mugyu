@@ -1,129 +1,91 @@
 package main
 
 import (
-	"bytes"
 	"compress/flate"
-	gz "compress/gzip"
+	"compress/gzip"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 	"strings"
 )
 
-type encodeMode int
-
-func (e encodeMode) String() string {
-	switch e {
-	case gzip:
-		return "gzip"
-	case deflate:
-		return "deflate"
-	case brotil:
-		return "br"
-	}
-	return ""
+type compressResponseWriter struct {
+	io.Writer
+	http.ResponseWriter
 }
 
-const (
-	none encodeMode = iota << 1
-	gzip
-	deflate
-	brotil
-)
-
-func parseEncodeMode(s string) encodeMode {
-	if strings.Contains(s, "br") {
-		return brotil
-	} else if strings.Contains(s, "gzip") {
-		return gzip
-	} else if strings.Contains(s, "deflate") {
-		return deflate
-	}
-	return none
+func (w compressResponseWriter) Write(b []byte) (int, error) {
+	return w.Writer.Write(b)
 }
 
-func compressDeflate(r io.Reader) (io.ReadCloser, error) {
-	buf := new(bytes.Buffer)
-	zw, err := flate.NewWriter(buf, flate.BestCompression)
+func (w compressResponseWriter) WriteHeader(code int) {
+	w.Header().Del("Content-Length")
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func gzipHandler(fn http.HandlerFunc, w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Encoding", "gzip")
+	gz, err := gzip.NewWriterLevel(w, gzip.BestCompression)
 	if err != nil {
-		return nil, err
+		fmt.Printf("Error closing gzip: %+v\n", err)
 	}
-	defer zw.Close()
-
-	if _, err := io.Copy(zw, r); err != nil {
-		return nil, err
-	}
-	return ioutil.NopCloser(buf), err
+	defer func() {
+		err := gz.Close()
+		if err != nil {
+			fmt.Printf("Error closing gzip: %+v\n", err)
+		}
+	}()
+	gzr := compressResponseWriter{Writer: gz, ResponseWriter: w}
+	fn(gzr, r)
 }
 
-func compressGzip(r io.Reader) (io.ReadCloser, error) {
-	buf := new(bytes.Buffer)
-	zw, err := gz.NewWriterLevel(buf, gz.BestCompression)
+func deflateHandler(fn http.HandlerFunc, w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Encoding", "deflate")
+	df, err := flate.NewWriter(w, flate.BestCompression)
 	if err != nil {
-		return nil, err
+		fmt.Printf("Error closing deflate: %+v\n", err)
 	}
-	defer zw.Close()
+	defer func() {
+		err := df.Close()
+		if err != nil {
+			fmt.Printf("Error closing deflate: %+v\n", err)
+		}
+	}()
+	dfr := compressResponseWriter{Writer: df, ResponseWriter: w}
+	fn(dfr, r)
+}
 
-	if _, err := io.Copy(zw, r); err != nil {
-		return nil, err
+func makeGzipHandler(fn http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.Header.Get("Accept-Encoding"), "deflate") {
+			deflateHandler(fn, w, r)
+			return
+		} else if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+			gzipHandler(fn, w, r)
+			return
+		}
+
+		fn(w, r)
 	}
+}
 
-	return ioutil.NopCloser(buf), err
+func reverseProxy(backEndUrl string) func(http.ResponseWriter, *http.Request) {
+	url, err := url.Parse(backEndUrl)
+	if err != nil {
+		panic(err)
+	}
+	return httputil.NewSingleHostReverseProxy(url).ServeHTTP
 }
 
 func main() {
-	director := func(request *http.Request) {
-		request.URL.Scheme = "http"
-		request.URL.Host = ":9000"
-	}
-
-	modifier := func(res *http.Response) error {
-		m := parseEncodeMode(res.Request.Header.Get("Accept-Encoding"))
-		fmt.Println(m)
-		buf := new(bytes.Buffer)
-		io.Copy(buf, res.Body)
-		res.Body = ioutil.NopCloser(buf)
-		io.Copy(res.Body, buf)
-
-		switch m {
-		case gzip:
-			r, err := compressGzip(buf)
-			if err != nil {
-				return err
-			}
-			//res.Body = r
-			//res.Header.Set("Content-Encoding", m.String())
-			_ = r
-		case deflate:
-			r, err := compressDeflate(buf)
-			if err != nil {
-				fmt.Println(err)
-				return err
-			}
-			//res.Body = r
-			//res.Header.Set("Content-Encoding", m.String())
-			_ = r
-		case brotil:
-			res.Header.Set("Content-Encoding", m.String())
-		default:
-		}
-
-		return nil
-	}
-
-	rp := &httputil.ReverseProxy{
-		Director:       director,
-		ModifyResponse: modifier,
-	}
-	server := http.Server{
+	proxyServer := http.Server{
 		Addr:    ":8080",
-		Handler: rp,
+		Handler: makeGzipHandler(reverseProxy("http://localhost:9000")),
 	}
-
-	if err := server.ListenAndServe(); err != nil {
+	if err := proxyServer.ListenAndServe(); err != nil {
 		log.Fatalln(err)
 	}
 }
