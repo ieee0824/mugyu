@@ -3,6 +3,7 @@ package main
 import (
 	"compress/flate"
 	"compress/gzip"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -12,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/itchio/go-brotli/enc"
+	"github.com/lucas-clemente/quic-go/http3"
 )
 
 type compressResponseWriter struct {
@@ -105,11 +107,30 @@ func reverseProxy(backEndUrl string) func(http.ResponseWriter, *http.Request) {
 }
 
 func main() {
+	var (
+		bg       = flag.String("b", "http://localhost:9000", "background")
+		port     = flag.Uint("p", 8080, "front port")
+		useQuic  = flag.Bool("enable_quic", false, "use quic")
+		certPath = flag.String("c", "", "cert file path")
+		keyPath  = flag.String("k", "", "key file path")
+	)
+	flag.Parse()
+
+	fmt.Println(*certPath)
+	fmt.Println(*keyPath)
+
 	proxyServer := http.Server{
-		Addr:    ":8080",
-		Handler: makeCompressionHandler(reverseProxy("http://localhost:9000")),
+		Addr:    fmt.Sprintf(":%d", *port),
+		Handler: makeCompressionHandler(reverseProxy(*bg)),
 	}
-	if err := proxyServer.ListenAndServe(); err != nil {
-		log.Fatalln(err)
+
+	if *useQuic {
+		if err := http3.ListenAndServeQUIC(proxyServer.Addr, *certPath, *keyPath, proxyServer.Handler); err != nil {
+			log.Fatalln(err)
+		}
+	} else {
+		if err := proxyServer.ListenAndServe(); err != nil {
+			log.Fatalln(err)
+		}
 	}
 }
