@@ -125,7 +125,7 @@ func main() {
 	}
 
 	if *useHttp3 {
-		if err := http3.ListenAndServeQUIC(proxyServer.Addr, *certPath, *keyPath, proxyServer.Handler); err != nil {
+		if err := http3.ListenAndServe(proxyServer.Addr, *certPath, *keyPath, proxyServer.Handler); err != nil {
 			log.Fatalln(err)
 		}
 	} else {
