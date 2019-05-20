@@ -86,11 +86,11 @@ func makeCompressionHandler(fn http.HandlerFunc) http.HandlerFunc {
 		if strings.Contains(r.Header.Get("Accept-Encoding"), "br") {
 			brotliHandler(fn, w, r)
 			return
-		} else if strings.Contains(r.Header.Get("Accept-Encoding"), "deflate") {
-			deflateHandler(fn, w, r)
-			return
 		} else if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
 			gzipHandler(fn, w, r)
+			return
+		} else if strings.Contains(r.Header.Get("Accept-Encoding"), "deflate") {
+			deflateHandler(fn, w, r)
 			return
 		}
 
