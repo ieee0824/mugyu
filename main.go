@@ -116,9 +116,6 @@ func main() {
 	)
 	flag.Parse()
 
-	fmt.Println(*certPath)
-	fmt.Println(*keyPath)
-
 	proxyServer := http.Server{
 		Addr:    fmt.Sprintf(":%d", *port),
 		Handler: makeCompressionHandler(reverseProxy(*bg)),
