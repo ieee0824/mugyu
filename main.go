@@ -110,7 +110,7 @@ func main() {
 	var (
 		bg       = flag.String("b", "http://localhost:9000", "background")
 		port     = flag.Uint("p", 8080, "front port")
-		useQuic  = flag.Bool("enable_quic", false, "use quic")
+		useHttp3 = flag.Bool("enable_http3", false, "use http3")
 		certPath = flag.String("c", "", "cert file path")
 		keyPath  = flag.String("k", "", "key file path")
 	)
@@ -124,7 +124,7 @@ func main() {
 		Handler: makeCompressionHandler(reverseProxy(*bg)),
 	}
 
-	if *useQuic {
+	if *useHttp3 {
 		if err := http3.ListenAndServeQUIC(proxyServer.Addr, *certPath, *keyPath, proxyServer.Handler); err != nil {
 			log.Fatalln(err)
 		}
