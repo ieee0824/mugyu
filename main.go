@@ -80,18 +80,24 @@ func brotliHandler(fn http.HandlerFunc, w http.ResponseWriter, r *http.Request) 
 	fn(brr, r)
 }
 
-func makeCompressionHandler(fn http.HandlerFunc) http.HandlerFunc {
+type handler struct {
+	enableCompress bool
+}
+
+func (h *handler) makeCompressionHandler(fn http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Vary", "Assept-Encoding")
-		if strings.Contains(r.Header.Get("Accept-Encoding"), "br") {
-			brotliHandler(fn, w, r)
-			return
-		} else if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
-			gzipHandler(fn, w, r)
-			return
-		} else if strings.Contains(r.Header.Get("Accept-Encoding"), "deflate") {
-			deflateHandler(fn, w, r)
-			return
+		if h.enableCompress {
+			w.Header().Set("Vary", "Assept-Encoding")
+			if strings.Contains(r.Header.Get("Accept-Encoding"), "br") {
+				brotliHandler(fn, w, r)
+				return
+			} else if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+				gzipHandler(fn, w, r)
+				return
+			} else if strings.Contains(r.Header.Get("Accept-Encoding"), "deflate") {
+				deflateHandler(fn, w, r)
+				return
+			}
 		}
 
 		fn(w, r)
@@ -103,29 +109,37 @@ func reverseProxy(backEndUrl string) func(http.ResponseWriter, *http.Request) {
 	if err != nil {
 		panic(err)
 	}
-	return httputil.NewSingleHostReverseProxy(url).ServeHTTP
+	proxy := httputil.NewSingleHostReverseProxy(url)
+	return proxy.ServeHTTP
 }
 
 func main() {
 	var (
-		bg       = flag.String("b", "http://localhost:9000", "background")
-		port     = flag.Uint("p", 8080, "front port")
-		useHttp3 = flag.Bool("enable_http3", false, "use http3")
-		certPath = flag.String("c", "", "cert file path")
-		keyPath  = flag.String("k", "", "key file path")
+		bg             = flag.String("b", "http://localhost:9000", "background")
+		port           = flag.Uint("p", 8080, "front port")
+		useHttp3       = flag.Bool("enable_http3", false, "use http3")
+		certPath       = flag.String("c", "", "cert file path")
+		keyPath        = flag.String("k", "", "key file path")
+		enableCompress = flag.Bool("enable_compress", false, "enable compress")
 	)
 	flag.Parse()
 
+	h := handler{
+		enableCompress: *enableCompress,
+	}
+
 	proxyServer := http.Server{
-		Addr:    fmt.Sprintf(":%d", *port),
-		Handler: makeCompressionHandler(reverseProxy(*bg)),
+		Addr:    fmt.Sprintf("0.0.0.0:%d", *port),
+		Handler: h.makeCompressionHandler(reverseProxy(*bg)),
 	}
 
 	if *useHttp3 {
+		fmt.Println("http3")
 		if err := http3.ListenAndServe(proxyServer.Addr, *certPath, *keyPath, proxyServer.Handler); err != nil {
 			log.Fatalln(err)
 		}
 	} else {
+		fmt.Println("http")
 		if err := proxyServer.ListenAndServe(); err != nil {
 			log.Fatalln(err)
 		}
